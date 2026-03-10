@@ -1,0 +1,18 @@
+# Profile: stdio
+# Enables stdio transport for subprocess mode (e.g., Claude Desktop integration).
+# Usage: --spring.profiles.active=stdio
+#
+# Note: When using stdio, the web server is typically not needed.
+
+spring:
+  main:
+    web-application-type: none
+
+mcp:
+  transport:
+    sse:
+      enabled: false
+    streamable-http:
+      enabled: false
+    stdio:
+      enabled: true

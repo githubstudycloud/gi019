@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: mcp-server-demo
+
+  # Spring AI configuration
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-your-api-key}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${AI_MODEL:gpt-4o}
+          temperature: 0.7
+
+server:
+  port: 18080
+
+# MCP Server configuration
+mcp:
+  server:
+    name: spring-boot-mcp-server
+    version: 1.0.0
+  transport:
+    # SSE transport (default, enabled)
+    sse:
+      enabled: true
+    # Streamable HTTP transport
+    streamable-http:
+      enabled: false
+    # Stdio transport (for subprocess mode, e.g., Claude Desktop)
+    stdio:
+      enabled: false
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.example.mcpserver: DEBUG
+    io.modelcontextprotocol: DEBUG

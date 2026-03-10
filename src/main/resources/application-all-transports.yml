@@ -1,0 +1,12 @@
+# Profile: all-transports
+# Enables all MCP transport protocols simultaneously.
+# Usage: --spring.profiles.active=all-transports
+
+mcp:
+  transport:
+    sse:
+      enabled: true
+    streamable-http:
+      enabled: true
+    stdio:
+      enabled: false  # stdio conflicts with web server, enable separately

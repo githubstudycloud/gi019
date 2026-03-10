@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "remote-mcp-direct": {
+      "url": "http://localhost:8080/mcp",
+      "transport": "streamable-http",
+      "_comment": "方式1: 直连远端 MCP (开发调试用)"
+    },
+    "mcp-via-proxy-gateway": {
+      "command": "./local-mcp-proxy/local-mcp-proxy",
+      "args": ["--gateway", "http://localhost:9090/gateway"],
+      "transport": "stdio",
+      "_comment": "方式2: 经本地代理 + 网关 (生产推荐)"
+    },
+    "mcp-via-proxy-direct": {
+      "command": "./local-mcp-proxy/local-mcp-proxy",
+      "args": ["--direct", "http://localhost:8080"],
+      "transport": "stdio",
+      "_comment": "方式3: 经本地代理直连远端 (无网关降级)"
+    }
+  }
+}
