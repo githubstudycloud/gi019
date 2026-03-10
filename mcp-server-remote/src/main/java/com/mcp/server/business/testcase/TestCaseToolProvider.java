@@ -25,55 +25,115 @@ public class TestCaseToolProvider implements McpToolProvider {
     @Override
     public List<ToolDefinition> getToolDefinitions() {
         return List.of(
+
                 new ToolDefinition(
                         "search_test_case",
-                        "搜索测试用例。支持通过项目名称（模糊）和用例名称（模糊）搜索，可选按版本名或URI过滤。" +
-                        "返回匹配的用例列表，包含用例名、类型、优先级、前置条件、操作步骤、预期结果等完整信息。",
+                        "Search test cases with fuzzy matching on project name and case name. " +
+                        "Supports optional filtering by version name or URI. " +
+                        "Returns paginated results with total count. " +
+                        "Use page and limit params to navigate large datasets (millions of records supported).",
                         Map.of(
                                 "type", "object",
                                 "properties", Map.of(
                                         "projectName", Map.of(
                                                 "type", "string",
-                                                "description", "项目名称（支持模糊匹配，如：电商、用户）"
+                                                "description", "Project name, fuzzy match (e.g. 'ecommerce' matches 'Ecommerce Platform')"
                                         ),
                                         "caseName", Map.of(
                                                 "type", "string",
-                                                "description", "用例名称（支持模糊匹配，如：登录、支付）"
+                                                "description", "Test case name, fuzzy match (e.g. 'login' matches 'User Login - Normal Flow')"
                                         ),
                                         "versionName", Map.of(
                                                 "type", "string",
-                                                "description", "版本名称（可选，支持模糊匹配，如：v1.0）"
+                                                "description", "Version name, optional fuzzy filter (e.g. 'v2' matches 'v2.0.0')"
                                         ),
                                         "uri", Map.of(
                                                 "type", "string",
-                                                "description", "对应URI（可选，支持模糊匹配，如：/api/v1）"
+                                                "description", "API URI, optional fuzzy filter (e.g. '/api/v1')"
+                                        ),
+                                        "page", Map.of(
+                                                "type", "integer",
+                                                "description", "Page number, starts from 1 (default: 1)",
+                                                "minimum", 1,
+                                                "default", 1
+                                        ),
+                                        "limit", Map.of(
+                                                "type", "integer",
+                                                "description", "Items per page, 1-100 (default: 20)",
+                                                "minimum", 1,
+                                                "maximum", 100,
+                                                "default", 20
                                         )
                                 ),
                                 "required", List.of()
                         )
                 ),
+
                 new ToolDefinition(
-                        "list_projects",
-                        "列出所有项目，可选关键词模糊搜索。返回项目名、描述、用例数量、版本数量。",
-                        Map.of(
-                                "type", "object",
-                                "properties", Map.of(
-                                        "keyword", Map.of(
-                                                "type", "string",
-                                                "description", "搜索关键词（可选，模糊匹配项目名和描述）"
-                                        )
-                                )
-                        )
-                ),
-                new ToolDefinition(
-                        "get_project_detail",
-                        "获取项目详情，包含版本列表和用例统计。通过项目名称模糊匹配。",
+                        "count_test_cases",
+                        "Count matching test cases without loading data. " +
+                        "Extremely fast even with millions of records. " +
+                        "Use this when you only need the count, not the actual case content.",
                         Map.of(
                                 "type", "object",
                                 "properties", Map.of(
                                         "projectName", Map.of(
                                                 "type", "string",
-                                                "description", "项目名称（支持模糊匹配）"
+                                                "description", "Project name, fuzzy match"
+                                        ),
+                                        "caseName", Map.of(
+                                                "type", "string",
+                                                "description", "Case name, fuzzy match"
+                                        ),
+                                        "versionName", Map.of(
+                                                "type", "string",
+                                                "description", "Version name, optional fuzzy filter"
+                                        ),
+                                        "uri", Map.of(
+                                                "type", "string",
+                                                "description", "API URI, optional fuzzy filter"
+                                        )
+                                ),
+                                "required", List.of()
+                        )
+                ),
+
+                new ToolDefinition(
+                        "list_projects",
+                        "List all projects with case and version counts. Supports optional keyword search and pagination.",
+                        Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                        "keyword", Map.of(
+                                                "type", "string",
+                                                "description", "Search keyword, fuzzy match on project name and description"
+                                        ),
+                                        "page", Map.of(
+                                                "type", "integer",
+                                                "description", "Page number, starts from 1 (default: 1)",
+                                                "minimum", 1,
+                                                "default", 1
+                                        ),
+                                        "limit", Map.of(
+                                                "type", "integer",
+                                                "description", "Items per page, 1-100 (default: 20)",
+                                                "minimum", 1,
+                                                "maximum", 100,
+                                                "default", 20
+                                        )
+                                )
+                        )
+                ),
+
+                new ToolDefinition(
+                        "get_project_detail",
+                        "Get full project details including version list and test case statistics by type and priority.",
+                        Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                        "projectName", Map.of(
+                                                "type", "string",
+                                                "description", "Project name, fuzzy match"
                                         )
                                 ),
                                 "required", List.of("projectName")
@@ -89,10 +149,20 @@ public class TestCaseToolProvider implements McpToolProvider {
                     getString(arguments, "projectName"),
                     getString(arguments, "caseName"),
                     getString(arguments, "versionName"),
+                    getString(arguments, "uri"),
+                    getInt(arguments, "page"),
+                    getInt(arguments, "limit")
+            );
+            case "count_test_cases" -> testCaseService.countTestCases(
+                    getString(arguments, "projectName"),
+                    getString(arguments, "caseName"),
+                    getString(arguments, "versionName"),
                     getString(arguments, "uri")
             );
             case "list_projects" -> testCaseService.listProjects(
-                    getString(arguments, "keyword")
+                    getString(arguments, "keyword"),
+                    getInt(arguments, "page"),
+                    getInt(arguments, "limit")
             );
             case "get_project_detail" -> testCaseService.getProjectDetail(
                     getString(arguments, "projectName")
@@ -104,5 +174,12 @@ public class TestCaseToolProvider implements McpToolProvider {
     private String getString(Map<String, Object> args, String key) {
         Object val = args.get(key);
         return val != null ? val.toString() : null;
+    }
+
+    private Integer getInt(Map<String, Object> args, String key) {
+        Object val = args.get(key);
+        if (val == null) return null;
+        if (val instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(val.toString()); } catch (NumberFormatException e) { return null; }
     }
 }

@@ -19,6 +19,9 @@ mcp:
   server:
     name: mcp-remote-server
     version: 1.0.0
+  search:
+    default-page-size: 20   # 每页默认返回条数
+    max-page-size: 100      # 每页最多返回条数（防止超大查询）
 
   # 数据库表名和字段名映射（根据实际数据库调整）
   db:
