@@ -11,8 +11,11 @@ import java.util.*;
 
 /**
  * 测试用例业务服务 —— 纯业务逻辑，与 MCP 框架无关。
- * 所有 SQL 中的表名和字段名都通过 DbTableProperties 动态获取。
- * 支持分页查询，适合百万级数据场景。
+ *
+ * SELECT 子句由 DbTableProperties.visibleFields() 动态构建：
+ *   - 新增字段：在 application.yml 中追加 fields 条目即可，无需改代码
+ *   - 场景适配：Spring Profile 覆盖表名/字段名，代码不变
+ *   - 结果键名：固定使用 YAML 中的逻辑字段名（camelCase），不受 DB 方言影响
  */
 @Service
 public class TestCaseService {
@@ -34,41 +37,44 @@ public class TestCaseService {
     }
 
     /**
-     * 搜索用例 —— 支持模糊匹配项目名和用例名，可选过滤版本和 URI，分页返回。
-     * 返回：{total, page, pageSize, totalPages, items: [...]}
+     * 搜索用例：模糊匹配项目名和用例名，可选版本/URI 过滤，分页返回。
+     * 返回结构：{total, page, pageSize, totalPages, items: [...]}
      */
     public Map<String, Object> searchTestCase(String projectName, String caseName,
                                                String versionName, String uri,
                                                Integer page, Integer limit) {
-        int safePage = (page == null || page < 1) ? 1 : page;
+        int safePage  = (page == null || page < 1) ? 1 : page;
         int safeLimit = clampLimit(limit);
-        int offset = (safePage - 1) * safeLimit;
+        int offset    = (safePage - 1) * safeLimit;
 
-        String pTable = db.projectTable();
-        String tcTable = db.testcaseTable();
-        String vTable = db.versionTable();
-
-        String pId = db.projectCol("id", "id");
-        String pName = db.projectCol("name", "name");
+        String pTable      = db.projectTable();
+        String tcTable     = db.testcaseTable();
+        String vTable      = db.versionTable();
+        String pId         = db.projectCol("id", "id");
+        String pName       = db.projectCol("name", "name");
         String tcProjectId = db.testcaseCol("projectId", "project_id");
-        String tcCaseName = db.testcaseCol("caseName", "case_name");
-        String vProjectId = db.versionCol("projectId", "project_id");
+        String tcCaseName  = db.testcaseCol("caseName", "case_name");
+        String vProjectId  = db.versionCol("projectId", "project_id");
         String vVersionName = db.versionCol("versionName", "version_name");
-        String vUri = db.versionCol("uri", "uri");
+        String vUri        = db.versionCol("uri", "uri");
 
         boolean needVersion = (versionName != null && !versionName.isBlank())
-                || (uri != null && !uri.isBlank());
+                           || (uri != null && !uri.isBlank());
 
-        // 构建 FROM + JOIN
+        // ── SELECT 子句：由 YAML visible 字段驱动 ───────────────────────────
+        String selectCols = buildTestcaseSelect(pName, needVersion, vVersionName, vUri);
+
+        // ── FROM + JOIN ──────────────────────────────────────────────────────
         StringBuilder from = new StringBuilder();
         from.append(" FROM ").append(tcTable).append(" tc");
-        from.append(" JOIN ").append(pTable).append(" p ON tc.").append(tcProjectId).append(" = p.").append(pId);
+        from.append(" JOIN ").append(pTable).append(" p ON tc.").append(tcProjectId)
+            .append(" = p.").append(pId);
         if (needVersion) {
             from.append(" JOIN ").append(vTable).append(" v ON tc.").append(tcProjectId)
                 .append(" = v.").append(vProjectId);
         }
 
-        // 构建 WHERE 条件
+        // ── WHERE 条件 ───────────────────────────────────────────────────────
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<Object> whereParams = new ArrayList<>();
 
@@ -89,17 +95,13 @@ public class TestCaseService {
             whereParams.add("%" + uri.trim() + "%");
         }
 
-        // COUNT 查询（不加载数据，只统计总数）
-        String countSql = "SELECT COUNT(*)" + from + where;
-        long total = jdbc.queryForObject(countSql, Long.class, whereParams.toArray());
+        // ── COUNT（不加载数据） ───────────────────────────────────────────────
+        long total = jdbc.queryForObject(
+                "SELECT COUNT(*)" + from + where, Long.class, whereParams.toArray());
 
-        // 数据查询（加分页）
-        String selectCols = "tc.*, p." + pName + " AS project_name";
-        if (needVersion) {
-            selectCols += ", v." + vVersionName + " AS version_name, v." + vUri + " AS version_uri";
-        }
-        String orderBy = " ORDER BY tc." + db.testcaseCol("id", "id");
-        String dataSql = "SELECT " + selectCols + from + where + orderBy + " LIMIT ? OFFSET ?";
+        // ── 数据查询（分页） ──────────────────────────────────────────────────
+        String orderBy  = " ORDER BY tc." + db.testcaseCol("id", "id");
+        String dataSql  = "SELECT " + selectCols + from + where + orderBy + " LIMIT ? OFFSET ?";
 
         List<Object> dataParams = new ArrayList<>(whereParams);
         dataParams.add(safeLimit);
@@ -109,37 +111,31 @@ public class TestCaseService {
 
         log.debug("[TestCase] search: total={}, page={}, pageSize={}", total, safePage, safeLimit);
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("total", total);
-        result.put("page", safePage);
-        result.put("pageSize", safeLimit);
-        result.put("totalPages", (int) Math.ceil((double) total / safeLimit));
-        result.put("items", items);
-        return result;
+        return pagedResult(total, safePage, safeLimit, items);
     }
 
     /**
-     * 仅统计用例数量，不加载数据——适合"有多少条用例"类问题，百万级也瞬间响应。
+     * 仅统计用例数量，不加载数据——百万级数据瞬间响应。
      */
     public Map<String, Object> countTestCases(String projectName, String caseName,
                                                String versionName, String uri) {
-        String pTable = db.projectTable();
-        String tcTable = db.testcaseTable();
-        String vTable = db.versionTable();
-
-        String pId = db.projectCol("id", "id");
-        String pName = db.projectCol("name", "name");
+        String pTable      = db.projectTable();
+        String tcTable     = db.testcaseTable();
+        String vTable      = db.versionTable();
+        String pId         = db.projectCol("id", "id");
+        String pName       = db.projectCol("name", "name");
         String tcProjectId = db.testcaseCol("projectId", "project_id");
-        String tcCaseName = db.testcaseCol("caseName", "case_name");
-        String vProjectId = db.versionCol("projectId", "project_id");
+        String tcCaseName  = db.testcaseCol("caseName", "case_name");
+        String vProjectId  = db.versionCol("projectId", "project_id");
         String vVersionName = db.versionCol("versionName", "version_name");
-        String vUri = db.versionCol("uri", "uri");
+        String vUri        = db.versionCol("uri", "uri");
 
         boolean needVersion = (versionName != null && !versionName.isBlank())
-                || (uri != null && !uri.isBlank());
+                           || (uri != null && !uri.isBlank());
 
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM ").append(tcTable).append(" tc");
-        sql.append(" JOIN ").append(pTable).append(" p ON tc.").append(tcProjectId).append(" = p.").append(pId);
+        sql.append(" JOIN ").append(pTable).append(" p ON tc.").append(tcProjectId)
+           .append(" = p.").append(pId);
         if (needVersion) {
             sql.append(" JOIN ").append(vTable).append(" v ON tc.").append(tcProjectId)
                .append(" = v.").append(vProjectId);
@@ -168,28 +164,28 @@ public class TestCaseService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("count", count);
-        if (projectName != null) result.put("projectName", projectName);
-        if (caseName != null) result.put("caseName", caseName);
-        if (versionName != null) result.put("versionName", versionName);
-        if (uri != null) result.put("uri", uri);
+        if (projectName != null && !projectName.isBlank()) result.put("projectName", projectName);
+        if (caseName    != null && !caseName.isBlank())    result.put("caseName",    caseName);
+        if (versionName != null && !versionName.isBlank()) result.put("versionName", versionName);
+        if (uri         != null && !uri.isBlank())         result.put("uri",         uri);
         return result;
     }
 
     /**
-     * 列出项目 —— 可模糊搜索，分页返回。
+     * 列出项目，分页返回。
      */
     public Map<String, Object> listProjects(String keyword, Integer page, Integer limit) {
-        int safePage = (page == null || page < 1) ? 1 : page;
+        int safePage  = (page == null || page < 1) ? 1 : page;
         int safeLimit = clampLimit(limit);
-        int offset = (safePage - 1) * safeLimit;
+        int offset    = (safePage - 1) * safeLimit;
 
         String pTable = db.projectTable();
-        String pName = db.projectCol("name", "name");
-        String pDesc = db.projectCol("description", "description");
-        String pId = db.projectCol("id", "id");
+        String pId    = db.projectCol("id", "id");
+        String pName  = db.projectCol("name", "name");
+        String pDesc  = db.projectCol("description", "description");
 
-        StringBuilder where = new StringBuilder();
-        List<Object> params = new ArrayList<>();
+        StringBuilder where  = new StringBuilder();
+        List<Object>  params = new ArrayList<>();
 
         if (keyword != null && !keyword.isBlank()) {
             where.append(" WHERE p.").append(pName).append(" LIKE ?");
@@ -198,16 +194,12 @@ public class TestCaseService {
             params.add("%" + keyword.trim() + "%");
         }
 
-        // COUNT
-        String countSql = "SELECT COUNT(*) FROM " + pTable + " p" + where;
-        long total = jdbc.queryForObject(countSql, Long.class, params.toArray());
+        long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM " + pTable + " p" + where, Long.class, params.toArray());
 
-        // DATA
-        String dataSql = "SELECT p.*"
-                + ", (SELECT COUNT(*) FROM " + db.testcaseTable() + " tc WHERE tc."
-                + db.testcaseCol("projectId", "project_id") + " = p." + pId + ") AS case_count"
-                + ", (SELECT COUNT(*) FROM " + db.versionTable() + " v WHERE v."
-                + db.versionCol("projectId", "project_id") + " = p." + pId + ") AS version_count"
+        // SELECT：project 的可见字段 + 聚合统计
+        String projectSelect = buildProjectSelect(pId);
+        String dataSql = "SELECT " + projectSelect
                 + " FROM " + pTable + " p"
                 + where
                 + " ORDER BY p." + pId
@@ -219,44 +211,49 @@ public class TestCaseService {
 
         List<Map<String, Object>> items = jdbc.queryForList(dataSql, dataParams.toArray());
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("total", total);
-        result.put("page", safePage);
-        result.put("pageSize", safeLimit);
-        result.put("totalPages", (int) Math.ceil((double) total / safeLimit));
-        result.put("items", items);
-        return result;
+        return pagedResult(total, safePage, safeLimit, items);
     }
 
     /**
-     * 获取项目详情 —— 包含版本列表和用例统计。
+     * 获取项目详情：版本列表 + 用例统计。
      */
     public Map<String, Object> getProjectDetail(String projectName) {
         String pTable = db.projectTable();
-        String pName = db.projectCol("name", "name");
-        String pId = db.projectCol("id", "id");
+        String pName  = db.projectCol("name", "name");
+        String pId    = db.projectCol("id", "id");
 
+        // 查项目（用显式 SELECT）
+        String projectSelect = buildProjectSelectPlain();
         List<Map<String, Object>> projects = jdbc.queryForList(
-                "SELECT * FROM " + pTable + " WHERE " + pName + " LIKE ? LIMIT 1",
+                "SELECT " + projectSelect + " FROM " + pTable + " p"
+                + " WHERE p." + pName + " LIKE ? LIMIT 1",
                 "%" + projectName.trim() + "%"
         );
 
         if (projects.isEmpty()) {
-            return Map.of("found", false, "error", "项目未找到: " + projectName);
+            return Map.of("found", false, "error", "Project not found: " + projectName);
         }
 
         Map<String, Object> project = projects.get(0);
+        // getProjectDetail 查询用 pId 作为 map key，pId 可能是 "id"
         Object projectId = project.get(pId);
+        if (projectId == null) {
+            // 若用了逻辑名别名 "id"，尝试逻辑名
+            projectId = project.get("id");
+        }
 
+        // 查版本（显式 SELECT）
+        String vSelect = buildVersionSelect();
         List<Map<String, Object>> versions = jdbc.queryForList(
-                "SELECT * FROM " + db.versionTable()
+                "SELECT " + vSelect + " FROM " + db.versionTable()
                 + " WHERE " + db.versionCol("projectId", "project_id") + " = ?"
                 + " ORDER BY " + db.versionCol("id", "id"),
                 projectId
         );
 
+        // 用例统计（聚合，不用 visible 字段）
         List<Map<String, Object>> caseStats = jdbc.queryForList(
-                "SELECT " + db.testcaseCol("caseType", "case_type") + " AS case_type, "
+                "SELECT " + db.testcaseCol("caseType", "case_type") + " AS caseType, "
                 + db.testcaseCol("priority", "priority") + " AS priority, "
                 + "COUNT(*) AS count FROM " + db.testcaseTable()
                 + " WHERE " + db.testcaseCol("projectId", "project_id") + " = ?"
@@ -277,6 +274,96 @@ public class TestCaseService {
         result.put("versions", versions);
         result.put("totalCases", totalCases);
         result.put("caseStats", caseStats);
+        return result;
+    }
+
+    // ── 私有辅助方法 ─────────────────────────────────────────────────────────
+
+    /**
+     * 构建 testcase 表的 SELECT 子句（tc.col AS logicalName 格式）。
+     * 字段列表由 YAML visible 配置决定，新增字段无需改代码。
+     */
+    private String buildTestcaseSelect(String pNameCol,
+                                        boolean needVersion,
+                                        String vVersionNameCol,
+                                        String vUriCol) {
+        Map<String, DbTableProperties.FieldConfig> fields = db.visibleFields("testcase");
+        List<String> parts = new ArrayList<>();
+
+        if (fields.isEmpty()) {
+            // 无配置时退化为 tc.*（兼容旧配置）
+            parts.add("tc.*");
+        } else {
+            fields.forEach((logical, cfg) ->
+                    parts.add("tc." + cfg.getColumn() + " AS " + logical));
+        }
+
+        parts.add("p." + pNameCol + " AS projectName");
+        if (needVersion) {
+            parts.add("v." + vVersionNameCol + " AS versionName");
+            parts.add("v." + vUriCol + " AS versionUri");
+        }
+        return String.join(", ", parts);
+    }
+
+    /** 构建 project 表的 SELECT 子句（含聚合 case_count / version_count）。 */
+    private String buildProjectSelect(String pId) {
+        Map<String, DbTableProperties.FieldConfig> fields = db.visibleFields("project");
+        List<String> parts = new ArrayList<>();
+
+        if (fields.isEmpty()) {
+            parts.add("p.*");
+        } else {
+            fields.forEach((logical, cfg) ->
+                    parts.add("p." + cfg.getColumn() + " AS " + logical));
+        }
+
+        String tcTable = db.testcaseTable();
+        String tcProjId = db.testcaseCol("projectId", "project_id");
+        String vTable  = db.versionTable();
+        String vProjId = db.versionCol("projectId", "project_id");
+
+        parts.add("(SELECT COUNT(*) FROM " + tcTable + " tc WHERE tc." + tcProjId
+                + " = p." + pId + ") AS caseCount");
+        parts.add("(SELECT COUNT(*) FROM " + vTable + " v WHERE v." + vProjId
+                + " = p." + pId + ") AS versionCount");
+        return String.join(", ", parts);
+    }
+
+    /** 构建不带聚合的 project SELECT（供 getProjectDetail 用）。 */
+    private String buildProjectSelectPlain() {
+        Map<String, DbTableProperties.FieldConfig> fields = db.visibleFields("project");
+        if (fields.isEmpty()) return "p.*";
+        List<String> parts = new ArrayList<>();
+        // getProjectDetail 需要 id 字段来关联查询，强制包含（即使 visible=false）
+        String pIdCol = db.projectCol("id", "id");
+        parts.add("p." + pIdCol + " AS id");
+        fields.forEach((logical, cfg) -> {
+            if (!logical.equals("id")) {  // 避免重复
+                parts.add("p." + cfg.getColumn() + " AS " + logical);
+            }
+        });
+        return String.join(", ", parts);
+    }
+
+    /** 构建 version 表的 SELECT 子句。 */
+    private String buildVersionSelect() {
+        Map<String, DbTableProperties.FieldConfig> fields = db.visibleFields("version");
+        if (fields.isEmpty()) return "*";
+        List<String> parts = new ArrayList<>();
+        fields.forEach((logical, cfg) ->
+                parts.add(cfg.getColumn() + " AS " + logical));
+        return String.join(", ", parts);
+    }
+
+    private Map<String, Object> pagedResult(long total, int page, int pageSize,
+                                             List<Map<String, Object>> items) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("total", total);
+        result.put("page", page);
+        result.put("pageSize", pageSize);
+        result.put("totalPages", (int) Math.ceil((double) total / pageSize));
+        result.put("items", items);
         return result;
     }
 

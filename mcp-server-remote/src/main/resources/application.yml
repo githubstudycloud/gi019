@@ -23,35 +23,108 @@ mcp:
     default-page-size: 20   # 每页默认返回条数
     max-page-size: 100      # 每页最多返回条数（防止超大查询）
 
-  # 数据库表名和字段名映射（根据实际数据库调整）
+  # 数据库表和字段配置
+  # 结构：tables.<逻辑表名>.name = 实际表名
+  #       tables.<逻辑表名>.fields.<逻辑字段名>.column = 实际列名
+  # 动态扩展：直接在 fields 下新增条目即可，无需改 Java 代码
+  # 场景适配：在对应 Spring Profile 的 yml 中覆盖 name/column 值
   db:
     tables:
-      project: t_project
-      version: t_project_version
-      testcase: t_test_case
-    columns:
       project:
-        id: id
-        name: name
-        description: description
-        createdAt: created_at
+        name: t_project
+        label: 项目
+        fields:
+          id:
+            column: id
+            label: 项目ID
+            visible: false          # 内部主键，不输出
+          name:
+            column: name
+            label: 项目名称
+            searchable: true
+          description:
+            column: description
+            label: 项目描述
+          createdAt:
+            column: created_at
+            label: 创建时间
+            visible: false
+
       version:
-        id: id
-        projectId: project_id
-        versionName: version_name
-        uri: uri
-        createdAt: created_at
+        name: t_project_version
+        label: 版本
+        fields:
+          id:
+            column: id
+            label: 版本ID
+            visible: false
+          projectId:
+            column: project_id
+            label: 所属项目ID
+            visible: false          # 外键，不输出
+          versionName:
+            column: version_name
+            label: 版本名称
+            searchable: true
+          uri:
+            column: uri
+            label: 接口URI
+            searchable: true
+          createdAt:
+            column: created_at
+            label: 创建时间
+            visible: false
+
       testcase:
-        id: id
-        projectId: project_id
-        caseName: case_name
-        caseType: case_type
-        priority: priority
-        precondition: precondition
-        steps: steps
-        expectedResult: expected_result
-        status: status
-        createdAt: created_at
+        name: t_test_case
+        label: 测试用例
+        fields:
+          id:
+            column: id
+            label: 用例ID
+          projectId:
+            column: project_id
+            label: 所属项目ID
+            visible: false          # 外键，不输出（由 projectName 替代）
+          caseName:
+            column: case_name
+            label: 用例名称
+            searchable: true
+          caseType:
+            column: case_type
+            label: 用例类型
+            description: "如：功能测试、异常测试、性能测试、安全测试"
+          priority:
+            column: priority
+            label: 优先级
+            description: "P0最高（核心功能），P1次之，P2普通，P3最低"
+            searchable: true
+          precondition:
+            column: precondition
+            label: 前置条件
+          steps:
+            column: steps
+            label: 操作步骤
+          expectedResult:
+            column: expected_result
+            label: 预期结果
+          caseStatus:
+            column: status
+            label: 用例状态
+            description: "active=有效，disabled=禁用，draft=草稿"
+          createdAt:
+            column: created_at
+            label: 创建时间
+            visible: false          # 时间戳意义不大，不输出
+          # ── 动态扩展示例（业务方新增字段时在此追加）──────────
+          # automationFlag:
+          #   column: automation_flag
+          #   label: 自动化标志
+          #   description: "Y=已自动化，N=手工用例"
+          # moduleName:
+          #   column: module_name
+          #   label: 所属模块
+          #   searchable: true
 
 management:
   endpoints:
