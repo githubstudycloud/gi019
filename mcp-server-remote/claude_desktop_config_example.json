@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "remote-testcase": {
+      "url": "http://localhost:8080/mcp",
+      "transport": "streamable-http",
+      "_comment": "直连远端 MCP Server (Streamable HTTP)"
+    }
+  }
+}

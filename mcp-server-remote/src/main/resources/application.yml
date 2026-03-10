@@ -1,0 +1,61 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: mcp-remote-server
+  datasource:
+    url: jdbc:mysql://localhost:3306/testdb?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+# MCP Server 配置
+mcp:
+  server:
+    name: mcp-remote-server
+    version: 1.0.0
+
+  # 数据库表名和字段名映射（根据实际数据库调整）
+  db:
+    tables:
+      project: t_project
+      version: t_project_version
+      testcase: t_test_case
+    columns:
+      project:
+        id: id
+        name: name
+        description: description
+        createdAt: created_at
+      version:
+        id: id
+        projectId: project_id
+        versionName: version_name
+        uri: uri
+        createdAt: created_at
+      testcase:
+        id: id
+        projectId: project_id
+        caseName: case_name
+        caseType: case_type
+        priority: priority
+        precondition: precondition
+        steps: steps
+        expectedResult: expected_result
+        status: status
+        createdAt: created_at
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.mcp.server: DEBUG
