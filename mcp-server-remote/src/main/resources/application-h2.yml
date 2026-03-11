@@ -13,5 +13,14 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:schema-h2.sql
-      data-locations: classpath:data-h2.sql
+      # 顺序加载：原有业务 → meta 元数据表 → 原有数据 → meta 种子数据
+      schema-locations:
+        - classpath:schema-h2.sql
+        - classpath:schema-meta.sql
+      data-locations:
+        - classpath:data-h2.sql
+        - classpath:data-meta.sql
+
+mcp:
+  skill:
+    output-dir: skills

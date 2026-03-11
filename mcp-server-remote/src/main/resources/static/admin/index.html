@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP Meta-Config 管理中心</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+  .header { background: #1a1a2e; color: #eee; padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .badge { background: #4caf50; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+  .container { display: flex; height: calc(100vh - 50px); }
+  .sidebar { width: 200px; background: #16213e; color: #ccc; padding: 16px 0; flex-shrink: 0; }
+  .sidebar a { display: block; padding: 10px 20px; color: #ccc; text-decoration: none; font-size: 14px; cursor: pointer; }
+  .sidebar a:hover, .sidebar a.active { background: #0f3460; color: #fff; }
+  .sidebar .section { padding: 8px 20px 4px; font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+  .main { flex: 1; overflow-y: auto; padding: 20px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .card h2 { font-size: 16px; margin-bottom: 16px; color: #1a1a2e; border-bottom: 2px solid #f0f2f5; padding-bottom: 8px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat-box { background: white; border-radius: 8px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.1); border-top: 3px solid; }
+  .stat-box.blue  { border-color: #2196f3; }
+  .stat-box.green { border-color: #4caf50; }
+  .stat-box.orange{ border-color: #ff9800; }
+  .stat-box.purple{ border-color: #9c27b0; }
+  .stat-box .num { font-size: 32px; font-weight: 700; }
+  .stat-box .label { font-size: 12px; color: #666; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-weight: 600; color: #555; border-bottom: 2px solid #dee2e6; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  tr:hover td { background: #f8f9fb; }
+  .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .btn-primary { background: #0f3460; color: white; }
+  .btn-success { background: #4caf50; color: white; }
+  .btn-danger  { background: #f44336; color: white; }
+  .btn-warning { background: #ff9800; color: white; }
+  .btn-sm { padding: 3px 8px; font-size: 12px; }
+  .btn:hover { opacity: 0.85; }
+  .badge-tag { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .badge-on  { background: #e8f5e9; color: #2e7d32; }
+  .badge-off { background: #fce4ec; color: #c62828; }
+  .badge-large { background: #fff3e0; color: #e65100; }
+  .form-group { margin-bottom: 12px; }
+  .form-group label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; font-weight: 500; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+  }
+  .form-group textarea { height: 120px; font-family: monospace; resize: vertical; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; }
+  .modal-bg.show { display: flex; align-items: center; justify-content: center; }
+  .modal { background: white; border-radius: 8px; padding: 24px; width: 560px; max-height: 80vh; overflow-y: auto; }
+  .modal h3 { margin-bottom: 16px; font-size: 16px; }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee; }
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .toolbar input { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; width: 220px; }
+  .log-box { background: #1a1a2e; color: #a8ff78; font-family: monospace; font-size: 12px;
+             padding: 12px; border-radius: 4px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; }
+  .tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 1px; }
+  .guide-box { background: #e8f5e9; border-left: 3px solid #4caf50; padding: 10px 14px; border-radius: 4px; font-size: 13px; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⚙️ MCP Meta-Config 管理中心</h1>
+  <span class="badge" id="serverStatus">连接中...</span>
+  <div style="margin-left:auto;font-size:12px;color:#888">http://localhost:8080</div>
+</div>
+
+<div class="container">
+  <div class="sidebar">
+    <div class="section">概览</div>
+    <a onclick="showPanel('overview')" class="active">📊 仪表盘</a>
+    <div class="section">配置管理</div>
+    <a onclick="showPanel('datasources')">🗄️ 数据源</a>
+    <a onclick="showPanel('tables')">📋 表注册</a>
+    <a onclick="showPanel('views')">🔍 查询视图</a>
+    <a onclick="showPanel('tools')">🔧 工具配置</a>
+    <div class="section">运维</div>
+    <a onclick="showPanel('skill')">📝 Skill 生成</a>
+    <a onclick="showPanel('perf')">⚡ 性能规则</a>
+  </div>
+
+  <div class="main">
+
+    <!-- ── 概览 ── -->
+    <div id="panel-overview" class="panel active">
+      <div class="stat-grid">
+        <div class="stat-box blue">  <div class="num" id="st-ds">-</div>  <div class="label">数据源</div></div>
+        <div class="stat-box green"> <div class="num" id="st-tbl">-</div> <div class="label">注册表</div></div>
+        <div class="stat-box orange"><div class="num" id="st-tool">-</div><div class="label">动态工具</div></div>
+        <div class="stat-box purple"><div class="num" id="st-view">-</div><div class="label">查询视图</div></div>
+      </div>
+      <div class="card">
+        <h2>引导式查询流程</h2>
+        <div class="guide-box">
+          <strong>第二业务（执行用例）查询流程：</strong><br>
+          1️⃣ <code>execution_list_projects</code> → 获取项目+业务库信息<br>
+          2️⃣ <code>execution_list_baselines</code> → 按 projectId 查基线<br>
+          3️⃣ <code>execution_query_baseline</code> → 查基线用例详情<br>
+          4️⃣ <code>execution_query_results</code> → 查执行结果<br>
+          5️⃣ <code>execution_compare</code> → 基线 vs 执行对比<br>
+          6️⃣ <code>execution_stats</code> → 执行统计汇总
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary" onclick="refreshCache()">🔄 刷新动态工具缓存</button>
+          <span id="refreshMsg" style="margin-left:10px;font-size:13px;color:#4caf50"></span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>已加载的动态数据源</h2>
+        <div id="loadedDs" style="font-size:13px"></div>
+      </div>
+    </div>
+
+    <!-- ── 数据源 ── -->
+    <div id="panel-datasources" class="panel">
+      <div class="card">
+        <h2>数据源管理</h2>
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="openDsModal()">+ 新建数据源</button>
+          <button class="btn btn-warning" onclick="loadDatasources()">↻ 刷新</button>
+        </div>
+        <table>
+          <thead><tr><th>Key</th><th>名称</th><th>类型</th><th>URL</th><th>连接池</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="ds-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 表注册 ── -->
+    <div id="panel-tables" class="panel">
+      <div class="card">
+        <h2>表元数据管理</h2>
+        <div class="toolbar">
+          <select id="tbl-ds-select" onchange="loadTables()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:180px">
+            <option value="">选择数据源...</option>
+          </select>
+          <button class="btn btn-warning" onclick="scanTables()">🔍 扫描表</button>
+          <input type="text" id="tbl-search" placeholder="搜索表名..." oninput="filterTables()" />
+        </div>
+        <div class="guide-box" style="margin-bottom:12px">
+          💡 万张表场景：标记"排除"的表不会出现在统计和查询中，仅扫描业务关键表。
+        </div>
+        <table>
+          <thead><tr><th>表名</th><th>业务别名</th><th>说明</th><th>估算行数</th><th>大表</th><th>排除</th><th>操作</th></tr></thead>
+          <tbody id="tbl-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 查询视图 ── -->
+    <div id="panel-views" class="panel">
+      <div class="card">
+        <h2>查询视图管理</h2>
+        <div class="guide-box" style="margin-bottom:12px">
+          💡 查询视图封装 SQL 模板，支持 <code>#{param}</code> 参数占位和 <code>#{if param}...#{/if}</code> 条件块。
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="openViewModal()">+ 新建视图</button>
+          <button class="btn btn-warning" onclick="loadViews()">↻ 刷新</button>
+        </div>
+        <table>
+          <thead><tr><th>Key</th><th>名称</th><th>数据源</th><th>最大行数</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="view-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 工具配置 ── -->
+    <div id="panel-tools" class="panel">
+      <div class="card">
+        <h2>动态工具配置</h2>
+        <div class="guide-box" style="margin-bottom:12px">
+          💡 在此配置的工具会动态注册到 MCP，无需重启。工具关联查询视图后，参数自动映射到 SQL 模板。
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="openToolModal()">+ 新建工具</button>
+          <button class="btn btn-success" onclick="refreshCache()">🔄 刷新工具缓存</button>
+        </div>
+        <table>
+          <thead><tr><th>Tool Key</th><th>名称</th><th>类型</th><th>关联视图</th><th>参数数</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="tool-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Skill 生成 ── -->
+    <div id="panel-skill" class="panel">
+      <div class="card">
+        <h2>自动生成 Skill</h2>
+        <div class="guide-box" style="margin-bottom:16px">
+          根据数据库中的工具配置自动生成 <code>SKILL.md</code>，Claude 可直接使用生成的 Skill 调用 MCP 工具。
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Skill Key（目录名）</label>
+            <input id="skill-key" value="dynamic" />
+          </div>
+          <div class="form-group">
+            <label>Skill 标题</label>
+            <input id="skill-title" value="动态 MCP 工具" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="generateSkill()">📝 生成 SKILL.md</button>
+        <div id="skill-result" style="margin-top:12px"></div>
+      </div>
+
+      <div class="card">
+        <h2>已生成的 Skill 文件</h2>
+        <table>
+          <thead><tr><th>路径</th><th>工具数</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>skills/execution/SKILL.md</td>
+              <td><span class="tag">7</span></td>
+              <td><button class="btn btn-sm btn-warning">预览</button></td>
+            </tr>
+            <tr>
+              <td>skills/testcase-debug/SKILL.md</td>
+              <td><span class="tag">4</span></td>
+              <td><button class="btn btn-sm btn-warning">预览</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 性能规则 ── -->
+    <div id="panel-perf" class="panel">
+      <div class="card">
+        <h2>性能保护规则</h2>
+        <div class="guide-box" style="margin-bottom:12px">
+          💡 查询执行前会进行 COUNT(*) 预检，超过扫描行数限制时触发对应动作：<br>
+          <strong>warn</strong>=警告后继续 &nbsp;|&nbsp; <strong>block</strong>=拒绝执行 &nbsp;|&nbsp; <strong>sample</strong>=自动降限
+        </div>
+        <table>
+          <thead><tr><th>规则名</th><th>数据源</th><th>表模式</th><th>最大扫描行</th><th>最大结果行</th><th>超时(s)</th><th>动作</th></tr></thead>
+          <tbody id="perf-tbody">
+            <tr>
+              <td>全局默认规则</td><td>全局</td><td>全部</td>
+              <td>500,000</td><td>500</td><td>30</td>
+              <td><span class="badge-tag badge-on">warn</span></td>
+            </tr>
+            <tr>
+              <td>执行用例大表保护</td><td>biz2</td><td>t_execution_case</td>
+              <td>1,000,000</td><td>200</td><td>20</td>
+              <td><span class="badge-tag badge-on">warn</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /container -->
+
+<!-- 数据源弹窗 -->
+<div id="ds-modal" class="modal-bg">
+  <div class="modal">
+    <h3>数据源配置</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Key（唯一标识）</label><input id="m-ds-key" placeholder="如 biz3" /></div>
+      <div class="form-group"><label>名称</label><input id="m-ds-name" placeholder="如 业务库3" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>类型</label>
+        <select id="m-ds-type">
+          <option value="mysql">MySQL</option>
+          <option value="h2">H2</option>
+          <option value="postgresql">PostgreSQL</option>
+        </select>
+      </div>
+      <div class="form-group"><label>连接池大小</label><input id="m-ds-pool" type="number" value="5" /></div>
+    </div>
+    <div class="form-group"><label>JDBC URL</label><input id="m-ds-url" placeholder="jdbc:mysql://host:3306/db?..." /></div>
+    <div class="form-row">
+      <div class="form-group"><label>用户名</label><input id="m-ds-user" /></div>
+      <div class="form-group"><label>密码</label><input id="m-ds-pwd" type="password" /></div>
+    </div>
+    <div class="form-group"><label>备注</label><input id="m-ds-remark" /></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeDsModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveDatasource()">保存并连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- 查询视图弹窗 -->
+<div id="view-modal" class="modal-bg">
+  <div class="modal">
+    <h3>查询视图配置</h3>
+    <div class="form-row">
+      <div class="form-group"><label>View Key</label><input id="m-vk" placeholder="如 project_list" /></div>
+      <div class="form-group"><label>名称</label><input id="m-vn" placeholder="如 项目列表" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>主数据源 Key</label><input id="m-vds" placeholder="如 common" /></div>
+      <div class="form-group"><label>最大返回行数</label><input id="m-vmr" type="number" value="500" /></div>
+    </div>
+    <div class="form-group"><label>说明</label><input id="m-vdesc" /></div>
+    <div class="form-group">
+      <label>SQL 模板（#{param} 占位，#{if param}...#{/if} 条件块）</label>
+      <textarea id="m-vsql" placeholder="SELECT * FROM t_project WHERE 1=1&#10;#{if keyword} AND name LIKE #{keyword} #{/if}&#10;LIMIT #{limit} OFFSET #{offset}"></textarea>
+    </div>
+    <div class="form-group"><label>COUNT SQL（可空，空则自动包装）</label><textarea id="m-vcsql" style="height:60px"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeViewModal()">取消</button>
+      <button class="btn btn-warning" onclick="testView()">▶ 测试执行</button>
+      <button class="btn btn-primary" onclick="saveView()">保存</button>
+    </div>
+    <div id="view-test-result" class="log-box" style="display:none;margin-top:10px"></div>
+  </div>
+</div>
+
+<script>
+const API = '/admin/api';
+
+// ── 面板切换 ────────────────────────────────────────────────────────
+function showPanel(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  event.target.classList.add('active');
+  // 懒加载
+  if (name === 'datasources') loadDatasources();
+  if (name === 'tables')      loadDsSelect();
+  if (name === 'views')       loadViews();
+  if (name === 'tools')       loadTools();
+  if (name === 'overview')    loadStats();
+}
+
+// ── 概览 ──────────────────────────────────────────────────────────
+async function loadStats() {
+  const r = await fetch(API + '/stats').then(r => r.json());
+  document.getElementById('st-ds').textContent   = r.datasourceCount ?? '-';
+  document.getElementById('st-tbl').textContent  = r.tableCount ?? '-';
+  document.getElementById('st-tool').textContent = r.toolCount ?? '-';
+  document.getElementById('st-view').textContent = r.viewCount ?? '-';
+  document.getElementById('serverStatus').textContent = '运行中';
+  document.getElementById('serverStatus').style.background = '#4caf50';
+  if (r.loadedDatasources) {
+    document.getElementById('loadedDs').innerHTML =
+      r.loadedDatasources.map(k => `<span class="tag">${k}</span>`).join('') || '（无）';
+  }
+}
+
+async function refreshCache() {
+  const r = await fetch(API + '/refresh', {method:'POST'}).then(r => r.json());
+  document.getElementById('refreshMsg').textContent = r.message || '已刷新';
+  loadStats();
+}
+
+// ── 数据源 ─────────────────────────────────────────────────────────
+async function loadDatasources() {
+  const list = await fetch(API + '/datasources').then(r => r.json());
+  const tbody = document.getElementById('ds-tbody');
+  tbody.innerHTML = list.map(d => `
+    <tr>
+      <td><strong>${d.dsKey}</strong></td>
+      <td>${d.dsName}</td>
+      <td><span class="tag">${d.dsType}</span></td>
+      <td style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.url}">${d.url||''}</td>
+      <td>${d.poolSize}</td>
+      <td><span class="badge-tag ${d.enabled ? 'badge-on':'badge-off'}">${d.enabled ? '启用':'禁用'}</span></td>
+      <td>
+        <button class="btn btn-sm btn-primary" onclick="checkDsHealth('${d.dsKey}')">健康检测</button>
+        <button class="btn btn-sm ${d.enabled ? 'btn-danger':'btn-success'}"
+          onclick="toggleDs(${d.id},${!d.enabled})">${d.enabled ? '禁用':'启用'}</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openDsModal() { document.getElementById('ds-modal').classList.add('show'); }
+function closeDsModal() { document.getElementById('ds-modal').classList.remove('show'); }
+
+async function saveDatasource() {
+  const body = {
+    dsKey: document.getElementById('m-ds-key').value,
+    dsName: document.getElementById('m-ds-name').value,
+    dsType: document.getElementById('m-ds-type').value,
+    url: document.getElementById('m-ds-url').value,
+    username: document.getElementById('m-ds-user').value,
+    password: document.getElementById('m-ds-pwd').value,
+    poolSize: parseInt(document.getElementById('m-ds-pool').value),
+    remark: document.getElementById('m-ds-remark').value,
+    enabled: true
+  };
+  const r = await fetch(API + '/datasources', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(r=>r.json());
+  alert(r.message || r.error);
+  if (r.success) { closeDsModal(); loadDatasources(); }
+}
+
+async function toggleDs(id, enabled) {
+  await fetch(`${API}/datasources/${id}/toggle?enabled=${enabled}`, {method:'POST'});
+  loadDatasources();
+}
+
+async function checkDsHealth(dsKey) {
+  const r = await fetch(`${API}/datasources/${dsKey}/health`).then(r=>r.json());
+  alert(`[${dsKey}] 状态: ${r.status}\n活跃连接: ${r.activeConnections}\n空闲连接: ${r.idleConnections}`);
+}
+
+// ── 表管理 ─────────────────────────────────────────────────────────
+let allTables = [];
+async function loadDsSelect() {
+  const list = await fetch(API + '/datasources?enabledOnly=true').then(r=>r.json());
+  const sel = document.getElementById('tbl-ds-select');
+  sel.innerHTML = '<option value="">选择数据源...</option>' +
+    list.map(d => `<option value="${d.id}|${d.dsKey}">${d.dsName} (${d.dsKey})</option>`).join('');
+}
+
+async function loadTables() {
+  const val = document.getElementById('tbl-ds-select').value;
+  if (!val) return;
+  const dsId = val.split('|')[0];
+  allTables = await fetch(`${API}/tables?dsId=${dsId}`).then(r=>r.json());
+  renderTables(allTables);
+}
+
+function renderTables(list) {
+  document.getElementById('tbl-tbody').innerHTML = list.map(t => `
+    <tr>
+      <td><strong>${t.tableName}</strong></td>
+      <td>${t.tableAlias || ''}</td>
+      <td style="font-size:12px;color:#666">${t.description || ''}</td>
+      <td>${t.rowEstimate != null ? t.rowEstimate.toLocaleString() : '未统计'}</td>
+      <td>${t.largeTable ? '<span class="badge-tag badge-large">大表</span>' : ''}</td>
+      <td><span class="badge-tag ${t.excluded ? 'badge-off':'badge-on'}">${t.excluded ? '已排除':'正常'}</span></td>
+      <td><button class="btn btn-sm ${t.excluded ? 'btn-success':'btn-danger'}"
+        onclick="toggleExclude(${t.id},${!t.excluded})">${t.excluded ? '恢复':'排除'}</button></td>
+    </tr>
+  `).join('');
+}
+
+function filterTables() {
+  const q = document.getElementById('tbl-search').value.toLowerCase();
+  renderTables(allTables.filter(t => t.tableName.toLowerCase().includes(q) || (t.tableAlias||'').toLowerCase().includes(q)));
+}
+
+async function scanTables() {
+  const val = document.getElementById('tbl-ds-select').value;
+  if (!val) { alert('请先选择数据源'); return; }
+  const [dsId, dsKey] = val.split('|');
+  const r = await fetch(`${API}/tables/scan?dsId=${dsId}&dsKey=${dsKey}`, {method:'POST'}).then(r=>r.json());
+  alert(r.message || r.error);
+  loadTables();
+}
+
+async function toggleExclude(id, excluded) {
+  await fetch(`${API}/tables/${id}/exclude?excluded=${excluded}`, {method:'POST'});
+  loadTables();
+}
+
+// ── 查询视图 ────────────────────────────────────────────────────────
+async function loadViews() {
+  const list = await fetch(API + '/views').then(r=>r.json());
+  document.getElementById('view-tbody').innerHTML = list.map(v => `
+    <tr>
+      <td><code>${v.viewKey}</code></td>
+      <td>${v.viewName}</td>
+      <td><span class="tag">${v.primaryDsKey || '动态'}</span></td>
+      <td>${v.maxRows}</td>
+      <td><span class="badge-tag ${v.enabled ? 'badge-on':'badge-off'}">${v.enabled ? '启用':'禁用'}</span></td>
+      <td>
+        <button class="btn btn-sm btn-primary" onclick="editView(${v.id})">编辑</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openViewModal() { document.getElementById('view-modal').classList.add('show'); }
+function closeViewModal() { document.getElementById('view-modal').classList.remove('show'); }
+
+async function saveView() {
+  const body = {
+    viewKey: document.getElementById('m-vk').value,
+    viewName: document.getElementById('m-vn').value,
+    primaryDsKey: document.getElementById('m-vds').value,
+    maxRows: parseInt(document.getElementById('m-vmr').value) || 500,
+    description: document.getElementById('m-vdesc').value,
+    sqlTemplate: document.getElementById('m-vsql').value,
+    countSql: document.getElementById('m-vcsql').value,
+    enabled: true
+  };
+  const r = await fetch(API + '/views', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(r=>r.json());
+  alert(r.message || r.error);
+  if (r.success) { closeViewModal(); loadViews(); }
+}
+
+async function testView() {
+  const dsKey = document.getElementById('m-vds').value;
+  const sql   = document.getElementById('m-vsql').value.replace(/#{[^}]+}/g,'NULL').replace(/#{if[^}]+}[\s\S]*?#{\/if}/g,'');
+  const r = await fetch(API + '/views/test', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dsKey, sql})}).then(r=>r.json());
+  const box = document.getElementById('view-test-result');
+  box.style.display = 'block';
+  box.textContent = JSON.stringify(r, null, 2);
+}
+
+// ── 工具配置 ─────────────────────────────────────────────────────────
+async function loadTools() {
+  const list = await fetch(API + '/tools').then(r=>r.json());
+  document.getElementById('tool-tbody').innerHTML = list.map(t => `
+    <tr>
+      <td><code>${t.toolKey}</code></td>
+      <td>${t.toolName}</td>
+      <td><span class="tag">${t.toolType}</span></td>
+      <td>${t.queryViewId ? `#${t.queryViewId}` : '-'}</td>
+      <td>${(t.params||[]).length}</td>
+      <td><span class="badge-tag ${t.enabled ? 'badge-on':'badge-off'}">${t.enabled ? '启用':'禁用'}</span></td>
+      <td>
+        <button class="btn btn-sm btn-danger" onclick="deleteTool(${t.id})">删除</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openToolModal() { alert('工具配置弹窗（完整版请查看 API 文档直接 POST /admin/api/tools）'); }
+
+async function deleteTool(id) {
+  if (!confirm('确认删除工具 #' + id + '？')) return;
+  await fetch(`${API}/tools/${id}`, {method:'DELETE'});
+  loadTools();
+}
+
+// ── Skill 生成 ────────────────────────────────────────────────────
+async function generateSkill() {
+  const body = {
+    skillKey: document.getElementById('skill-key').value,
+    skillTitle: document.getElementById('skill-title').value
+  };
+  const r = await fetch(API + '/skill/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(r=>r.json());
+  const el = document.getElementById('skill-result');
+  el.innerHTML = `<div class="guide-box">${r.message || r.error}</div>`;
+}
+
+// ── 初始化 ────────────────────────────────────────────────────────
+loadStats();
+</script>
+</body>
+</html>
