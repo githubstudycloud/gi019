@@ -80,7 +80,7 @@ INSERT INTO mcp_query_view (view_key, view_name, description, primary_ds_key,
 VALUES ('project_biz_overview', '项目业务库概览',
     '查询项目及其关联的业务数据库信息',
     'common',
-    'SELECT p.id, p.name as projectName, p.description, m.ds_key, m.biz_name
+    'SELECT p.id, p.name AS projectName, p.description, m.ds_key AS dsKey, m.biz_name AS bizName, m.enabled AS bizEnabled
      FROM t_project p
      LEFT JOIN t_biz_db_mapping m ON p.id = m.project_id
      WHERE 1=1

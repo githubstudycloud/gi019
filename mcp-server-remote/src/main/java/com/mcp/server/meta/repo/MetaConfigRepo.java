@@ -305,10 +305,11 @@ public class MetaConfigRepo {
 
     public Map<String, Object> getStats() {
         Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("datasourceCount", jdbc.queryForObject("SELECT COUNT(*) FROM mcp_datasource WHERE enabled=TRUE", Long.class));
-        stats.put("tableCount",      jdbc.queryForObject("SELECT COUNT(*) FROM mcp_table_meta WHERE is_excluded=FALSE", Long.class));
-        stats.put("toolCount",       jdbc.queryForObject("SELECT COUNT(*) FROM mcp_tool_config WHERE enabled=TRUE", Long.class));
-        stats.put("viewCount",       jdbc.queryForObject("SELECT COUNT(*) FROM mcp_query_view WHERE enabled=TRUE", Long.class));
+        stats.put("datasourceCount",     jdbc.queryForObject("SELECT COUNT(*) FROM mcp_datasource WHERE enabled=TRUE", Long.class));
+        stats.put("tableCount",          jdbc.queryForObject("SELECT COUNT(*) FROM mcp_table_meta WHERE is_excluded=FALSE", Long.class));
+        stats.put("dynamicToolCount",    jdbc.queryForObject("SELECT COUNT(*) FROM mcp_tool_config WHERE enabled=TRUE", Long.class));
+        stats.put("viewCount",           jdbc.queryForObject("SELECT COUNT(*) FROM mcp_query_view WHERE enabled=TRUE", Long.class));
+        // 注：staticToolCount 由 McpRegistry 统计，此处仅反映动态配置工具数量
         return stats;
     }
 }

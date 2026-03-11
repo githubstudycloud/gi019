@@ -110,7 +110,7 @@ public class ExecutionService {
         Map<String, Object> result = pagedResult(total, safePage, safeLimit, items);
         result.put("projectId", projectId);
         result.put("dsKey", dsKey);
-        result.put("_guide", "下一步：使用 execution_query_baseline_cases 传入 projectId + baselineName 查看基线用例详情");
+        result.put("_guide", "下一步：使用 execution_query_baseline 传入 projectId + baselineName 查看基线用例详情");
         return result;
     }
 
@@ -184,19 +184,16 @@ public class ExecutionService {
         int safeLimit = limit == null || limit < 1 ? 20 : Math.min(limit, 100);
         int offset    = (safePage - 1) * safeLimit;
 
-        // 先通过 baseline_name 关联拿到 baseline_id
+        // 通过 case_code IN (subquery) 过滤属于指定基线的执行记录，避免 baseline_id FK 语义错误
+        String fromClause = " FROM t_execution_case e";
         StringBuilder where = new StringBuilder(" WHERE e.project_id=?");
         List<Object> params = new ArrayList<>();
         params.add(projectId);
 
-        boolean needBaselineJoin = (baselineName != null && !baselineName.isBlank());
-        String fromClause = " FROM t_execution_case e";
-        if (needBaselineJoin) {
-            fromClause += " JOIN t_baseline_case b ON e.baseline_id=b.id AND b.baseline_name=?";
-            params.add(0, projectId); // 重新组装：e.project_id 在前
-            // 重置 where，join 后再加条件
-            where = new StringBuilder(" WHERE e.project_id=?");
-            params.clear();
+        if (baselineName != null && !baselineName.isBlank()) {
+            where.append(" AND e.case_code IN (" +
+                    "SELECT case_code FROM t_baseline_case" +
+                    " WHERE project_id=? AND baseline_name=?)");
             params.add(projectId);
             params.add(baselineName.trim());
         }
@@ -246,36 +243,49 @@ public class ExecutionService {
         JdbcTemplate jdbc = dsManager.getTemplate(dsKey);
 
         // 基线用例集
-        String baselineSql = "SELECT id, case_code, case_name, case_type, priority" +
+        String baselineSql = "SELECT id, case_code AS caseCode, case_name AS caseName, case_type AS caseType, priority" +
                 " FROM t_baseline_case WHERE project_id=? AND baseline_name=? AND status='active'" +
                 " ORDER BY case_code";
         List<Map<String, Object>> baselineCases = jdbc.queryForList(baselineSql, projectId, baselineName);
 
-        // 执行结果（该轮次）
-        StringBuilder execWhere = new StringBuilder("WHERE e.project_id=?");
+        // 无轮次时自动取最新一轮（按最大执行时间判断）
+        String resolvedRound = (executeRound != null && !executeRound.isBlank()) ? executeRound.trim() : null;
+        if (resolvedRound == null) {
+            List<Map<String, Object>> latestRound = jdbc.queryForList(
+                    "SELECT execute_round FROM t_execution_case" +
+                    " WHERE project_id=? AND case_code IN (" +
+                    "  SELECT case_code FROM t_baseline_case WHERE project_id=? AND baseline_name=?)" +
+                    " GROUP BY execute_round ORDER BY MAX(execute_time) DESC LIMIT 1",
+                    projectId, projectId, baselineName);
+            if (!latestRound.isEmpty()) {
+                resolvedRound = (String) latestRound.get(0).get("execute_round");
+            }
+        }
+
+        // 执行结果查询：用 case_code IN (subquery) 代替错误的 baseline_id JOIN
         List<Object> execParams = new ArrayList<>();
         execParams.add(projectId);
-
-        execWhere.append(" AND b.baseline_name=?");
+        execParams.add(projectId);
         execParams.add(baselineName);
-
-        if (executeRound != null && !executeRound.isBlank()) {
-            execWhere.append(" AND e.execute_round=?");
-            execParams.add(executeRound.trim());
+        StringBuilder execFilter = new StringBuilder(
+                " WHERE e.project_id=?" +
+                " AND e.case_code IN (SELECT case_code FROM t_baseline_case WHERE project_id=? AND baseline_name=?)");
+        if (resolvedRound != null) {
+            execFilter.append(" AND e.execute_round=?");
+            execParams.add(resolvedRound);
         }
 
         String execSql = "SELECT e.case_code AS caseCode, e.case_name AS caseName," +
                 " e.execute_round AS executeRound, e.execute_status AS executeStatus," +
                 " e.executor, e.execute_time AS executeTime, e.bug_id AS bugId" +
-                " FROM t_execution_case e JOIN t_baseline_case b ON e.baseline_id=b.id" +
-                " " + execWhere + " ORDER BY e.case_code, e.execute_time DESC";
+                " FROM t_execution_case e" + execFilter +
+                " ORDER BY e.case_code, e.execute_time DESC";
         List<Map<String, Object>> execResults = jdbc.queryForList(execSql, execParams.toArray());
 
         // 建立执行结果 Map（code → latest）
         Map<String, Map<String, Object>> execMap = new LinkedHashMap<>();
         for (Map<String, Object> r : execResults) {
-            // 兼容有无别名两种情况
-            String code = r.containsKey("caseCode") ? (String) r.get("caseCode") : (String) r.get("case_code");
+            String code = (String) r.get("caseCode");
             execMap.putIfAbsent(code, r);
         }
 
@@ -284,7 +294,7 @@ public class ExecutionService {
         int passCount = 0, failCount = 0, skipCount = 0, notExecCount = 0;
 
         for (Map<String, Object> bc : baselineCases) {
-            String code = bc.containsKey("case_code") ? (String) bc.get("case_code") : (String) bc.get("caseCode");
+            String code = (String) bc.get("caseCode");
             Map<String, Object> row = new LinkedHashMap<>(bc);
             Map<String, Object> execResult = execMap.get(code);
 
@@ -321,7 +331,7 @@ public class ExecutionService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("projectId", projectId);
         result.put("baselineName", baselineName);
-        result.put("executeRound", executeRound);
+        result.put("executeRound", resolvedRound != null ? resolvedRound : "全部");
         result.put("summary", summary);
         result.put("details", compared);
         if (failCount > 0) {
@@ -350,23 +360,27 @@ public class ExecutionService {
                 projectId, baselineName);
         result.put("baselineStats", baselineStats);
 
-        // 执行状态统计（按轮次）
+        // 子查询常量：属于该基线的 case_code 集合
+        String baselineCodes = "SELECT case_code FROM t_baseline_case WHERE project_id=? AND baseline_name=?";
+
+        // 执行状态统计（按轮次，仅统计属于该基线的用例）
         List<Map<String, Object>> execStats = jdbc.queryForList(
-                "SELECT e.execute_round AS executeRound, e.execute_status AS executeStatus, COUNT(*) AS count" +
-                " FROM t_execution_case e JOIN t_baseline_case b ON e.baseline_id=b.id" +
-                " WHERE e.project_id=? AND b.baseline_name=?" +
-                " GROUP BY e.execute_round, e.execute_status ORDER BY e.execute_round",
-                projectId, baselineName);
+                "SELECT execute_round AS executeRound, execute_status AS executeStatus, COUNT(*) AS count" +
+                " FROM t_execution_case" +
+                " WHERE project_id=? AND case_code IN (" + baselineCodes + ")" +
+                " GROUP BY execute_round, execute_status ORDER BY execute_round",
+                projectId, projectId, baselineName);
         result.put("execStats", execStats);
 
-        // Bug 统计
+        // Bug 统计（仅含该基线的用例 + 失败 + 有 bug_id）
         List<Map<String, Object>> bugStats = jdbc.queryForList(
-                "SELECT e.bug_id AS bugId, e.case_code AS caseCode, e.case_name AS caseName," +
-                " e.execute_round AS executeRound, e.executor, e.execute_time AS executeTime" +
-                " FROM t_execution_case e JOIN t_baseline_case b ON e.baseline_id=b.id" +
-                " WHERE e.project_id=? AND b.baseline_name=? AND e.execute_status='fail' AND e.bug_id IS NOT NULL" +
-                " ORDER BY e.execute_time DESC",
-                projectId, baselineName);
+                "SELECT bug_id AS bugId, case_code AS caseCode, case_name AS caseName," +
+                " execute_round AS executeRound, executor, execute_time AS executeTime" +
+                " FROM t_execution_case" +
+                " WHERE project_id=? AND execute_status='fail' AND bug_id IS NOT NULL" +
+                " AND case_code IN (" + baselineCodes + ")" +
+                " ORDER BY execute_time DESC",
+                projectId, projectId, baselineName);
         result.put("bugList", bugStats);
         result.put("bugCount", bugStats.size());
 
@@ -377,11 +391,18 @@ public class ExecutionService {
     // 跨库查询：版本关系（公共库）
     // ================================================================
 
-    public List<Map<String, Object>> listCaseVersions(Long projectId) {
-        return commonJdbc.queryForList(
+    public Map<String, Object> listCaseVersions(Long projectId) {
+        List<Map<String, Object>> items = commonJdbc.queryForList(
                 "SELECT id, version_name AS versionName, baseline_id AS baselineId, remark" +
                 " FROM t_case_version WHERE project_id=? ORDER BY id",
                 projectId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("total", items.size());
+        result.put("projectId", projectId);
+        result.put("items", items);
+        result.put("_guide", "版本对应的 baselineId 可传入 execution_list_baselines 作为参考，" +
+                "或直接用 execution_query_baseline 按 baselineName 查询");
+        return result;
     }
 
     // ================================================================
@@ -405,19 +426,18 @@ public class ExecutionService {
 
     private Map<String, Object> getBaselineExecSummary(JdbcTemplate jdbc, Long projectId, String baselineName) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT e.execute_status, COUNT(*) AS cnt" +
-                " FROM t_execution_case e JOIN t_baseline_case b ON e.baseline_id=b.id" +
-                " WHERE e.project_id=? AND b.baseline_name=?" +
-                " GROUP BY e.execute_status",
-                projectId, baselineName);
+                "SELECT execute_status, COUNT(*) AS cnt" +
+                " FROM t_execution_case" +
+                " WHERE project_id=? AND case_code IN (" +
+                "  SELECT case_code FROM t_baseline_case WHERE project_id=? AND baseline_name=?)" +
+                " GROUP BY execute_status",
+                projectId, projectId, baselineName);
         Map<String, Object> summary = new LinkedHashMap<>();
         long pass = 0, fail = 0, total = 0;
         for (Map<String, Object> r : rows) {
             long cnt = ((Number) r.get("cnt")).longValue();
             total += cnt;
-            String status = (String) r.get("executeStatus") != null
-                    ? (String) r.get("executeStatus")
-                    : (String) r.get("execute_status");
+            String status = (String) r.get("execute_status");
             if ("pass".equalsIgnoreCase(status)) pass = cnt;
             if ("fail".equalsIgnoreCase(status)) fail = cnt;
         }

@@ -1,5 +1,6 @@
 package com.mcp.server.web;
 
+import com.mcp.server.framework.McpRegistry;
 import com.mcp.server.meta.datasource.DynamicDsManager;
 import com.mcp.server.meta.domain.*;
 import com.mcp.server.meta.provider.DynamicToolProvider;
@@ -37,16 +38,19 @@ public class MetaApiController {
     private final DynamicToolProvider dynamicToolProvider;
     private final SkillGenerator skillGenerator;
     private final JdbcTemplate primaryJdbc;
+    private final McpRegistry mcpRegistry;
 
     public MetaApiController(MetaConfigRepo repo, DynamicDsManager dsManager,
                              DynamicToolProvider dynamicToolProvider,
                              SkillGenerator skillGenerator,
-                             JdbcTemplate primaryJdbc) {
+                             JdbcTemplate primaryJdbc,
+                             McpRegistry mcpRegistry) {
         this.repo = repo;
         this.dsManager = dsManager;
         this.dynamicToolProvider = dynamicToolProvider;
         this.skillGenerator = skillGenerator;
         this.primaryJdbc = primaryJdbc;
+        this.mcpRegistry = mcpRegistry;
     }
 
     // ================================================================
@@ -57,6 +61,7 @@ public class MetaApiController {
     public Map<String, Object> stats() {
         Map<String, Object> stats = repo.getStats();
         stats.put("loadedDatasources", dsManager.listKeys());
+        stats.put("totalToolCount", mcpRegistry.listTools().size());
         return stats;
     }
 

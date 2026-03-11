@@ -174,7 +174,7 @@ public class ExecutionToolProvider implements McpToolProvider {
             case "execution_stats"          -> service.executionStats(
                     longVal(args, "projectId"), str(args, "baselineName"));
 
-            case "execution_list_versions"  -> service.listCaseVersions(longVal(args, "projectId"));
+            case "execution_list_versions"  -> (Map<String, Object>) service.listCaseVersions(longVal(args, "projectId"));
 
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
